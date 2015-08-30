@@ -39,13 +39,14 @@ import java.util.concurrent.Executors;
  */
 public class SimpleFsFileDownloadExample {
 	private static final int SERVER_PORT = 6732;
-	private static final Path DOWNLOAD_PATH = Paths.get("./test/");
+	private static final Path DOWNLOAD_PATH = Paths.get("/home/vmykhalko/Desktop");
 
 	private static final Logger logger = LoggerFactory.getLogger(SimpleFsFileDownloadExample.class);
 
 	// Specify the name of file to download in the first argument
 	public static void main(String[] args) {
-		final String downloadFileName = args[0];
+//		final String downloadFileName = args[0];
+		final String downloadFileName = "datax.txt";
 		final InetSocketAddress serverAddress = new InetSocketAddress("127.0.0.1", SERVER_PORT);
 		final ExecutorService executor = Executors.newCachedThreadPool();
 
