@@ -40,7 +40,9 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 public class SimpleFsServer extends AbstractNioServer<SimpleFsServer> {
@@ -50,6 +52,9 @@ public class SimpleFsServer extends AbstractNioServer<SimpleFsServer> {
 	private final ExecutorService executor;
 	private final Path fileStorage;
 	private final int bufferSize;
+
+	private Set<String> unconfirmedUploadedFiles = new HashSet<>();
+	private Set<String> confirmedUploadedFiles = new HashSet<>();
 
 	private SimpleFsServer(final NioEventloop eventloop, final Path fileStorage, ExecutorService executor, int bufferSize) {
 		super(eventloop);
@@ -111,15 +116,13 @@ public class SimpleFsServer extends AbstractNioServer<SimpleFsServer> {
 				.addHandler(SimpleFsCommandUpload.class, new MessagingHandler<SimpleFsCommandUpload, SimpleFsResponse>() {
 					@Override
 					public void onMessage(final SimpleFsCommandUpload item, Messaging<SimpleFsResponse> messaging) {
-						String fileName = item.filename;
-						if (fileName.contains(File.separator)) {
-							fileName = fileName.substring(fileName.lastIndexOf(File.separator) + 1);
-						}
+
+						final String fileName = fetchFileName(item.filename);
 
 						logger.info("Server receive command upload file {}", fileName);
 
 						final Path destination = fileStorage.resolve(fileName);
-						final Path inProgress = fileStorage.resolve(fileName + IN_PROGRESS_EXTENSION);
+						final Path inProgress = fileStorage.resolve(buildInProgressFileName(fileName));
 
 						if (Files.exists(destination) || Files.exists(inProgress)) {
 							logger.info("Client tries upload exists file {}", fileName);
@@ -131,26 +134,19 @@ public class SimpleFsServer extends AbstractNioServer<SimpleFsServer> {
 						messaging.sendMessage(new SimpleFsResponseOperationOk());
 
 						StreamProducer<ByteBuf> producer = messaging.binarySocketReader();
-//						StreamLZ4Validator lz4DecompressorValidate = new StreamLZ4Validator(eventloop);
 						StreamConsumer<ByteBuf> diskWrite = StreamFileWriter.createFile(eventloop, executor, inProgress, true);
 
 						producer.streamTo(diskWrite);
-//						producer.streamTo(lz4DecompressorValidate);
-//						lz4DecompressorValidate.streamTo(diskWrite);
 
 						diskWrite.addCompletionCallback(new CompletionCallback() {
 							@Override
 							public void onComplete() {
-								// rename file
-								try {
-									Files.move(inProgress, destination);
-								} catch (IOException e) {
-									logger.error("Can't rename file {} to {}", inProgress.toAbsolutePath(), destination.toAbsolutePath(), e);
-									try {
-										Files.delete(inProgress);
-									} catch (IOException e1) {
-										logger.error("Can't remove file {} ", inProgress.toAbsolutePath(), e1);
-									}
+								if (confirmedUploadedFiles.contains(fileName)) {
+									renameFile(inProgress, destination);
+									confirmedUploadedFiles.remove(fileName);
+									System.out.println("ringo");   // TODO: remove debug code
+								} else {
+									unconfirmedUploadedFiles.add(fileName);
 								}
 							}
 
@@ -193,7 +189,47 @@ public class SimpleFsServer extends AbstractNioServer<SimpleFsServer> {
 						}
 						messaging.shutdown();
 					}
+				})
+				.addHandler(SimpleFsCommandUploadSuccess.class, new MessagingHandler<SimpleFsCommandUploadSuccess, SimpleFsResponse>() {
+					@Override
+					public void onMessage(SimpleFsCommandUploadSuccess item, Messaging<SimpleFsResponse> messaging) {
+						String fileName = fetchFileName(item.fileName);
+						if (unconfirmedUploadedFiles.contains(fileName)) {
+							final Path destination = fileStorage.resolve(fileName);
+							final Path inProgress = fileStorage.resolve(buildInProgressFileName(fileName));
+							renameFile(inProgress, destination);
+							unconfirmedUploadedFiles.remove(fileName);
+							System.out.println("bingo");  // TODO: remove debug code
+						} else {
+							confirmedUploadedFiles.add(fileName);
+						}
+					}
 				});
+	}
+
+	private String fetchFileName(String filePath) {
+		String fileName = filePath;
+		if (fileName.contains(File.separator)) {
+			fileName = fileName.substring(fileName.lastIndexOf(File.separator) + 1);
+		}
+		return fileName;
+	}
+
+	private void renameFile(Path inProgress, Path destination) {
+		try {
+			Files.move(inProgress, destination);
+		} catch (IOException e) {
+			logger.error("Can't rename file {} to {}", inProgress.toAbsolutePath(), destination.toAbsolutePath(), e);
+			try {
+				Files.delete(inProgress);
+			} catch (IOException e1) {
+				logger.error("Can't remove file {} ", inProgress.toAbsolutePath(), e1);
+			}
+		}
+	}
+
+	private String buildInProgressFileName(String fileName) {
+		return fileName + IN_PROGRESS_EXTENSION;
 	}
 
 	private List<String> fileList() throws IOException {

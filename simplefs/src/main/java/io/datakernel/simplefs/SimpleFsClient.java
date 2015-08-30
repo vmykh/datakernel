@@ -16,6 +16,7 @@
 
 package io.datakernel.simplefs;
 
+import io.datakernel.async.CompletionCallback;
 import io.datakernel.async.ResultCallback;
 import io.datakernel.bytebuf.ByteBuf;
 import io.datakernel.eventloop.ConnectCallback;
@@ -72,7 +73,7 @@ public class SimpleFsClient implements SimpleFs {
 	}
 
 	@Override
-	public void write(InetSocketAddress address, final String destinationFileName, final ResultCallback<StreamConsumer<ByteBuf>> callback) {
+	public void write(final InetSocketAddress address, final String destinationFileName, final ResultCallback<StreamConsumer<ByteBuf>> callback) {
 		eventloop.connect(address, SocketSettings.defaultSocketSettings(), new ConnectCallback() {
 					@Override
 					public void onConnect(SocketChannel socketChannel) {
@@ -87,15 +88,19 @@ public class SimpleFsClient implements SimpleFs {
 								.addHandler(SimpleFsResponseOperationOk.class, new MessagingHandler<SimpleFsResponseOperationOk, SimpleFsCommand>() {
 									@Override
 									public void onMessage(SimpleFsResponseOperationOk item, Messaging<SimpleFsCommand> messaging) {
-										StreamByteChunker streamByteChunkerBefore = new StreamByteChunker(eventloop, bufferSize / 2, bufferSize);
-										StreamLZ4Compressor compressor = compressorFactory.getInstance(eventloop);
-										StreamByteChunker streamByteChunkerAfter = new StreamByteChunker(eventloop, bufferSize / 2, bufferSize);
+										StreamConsumer<ByteBuf> binarySocketWriter = messaging.binarySocketWriter();
+										binarySocketWriter.addCompletionCallback(new CompletionCallback() {
+											@Override
+											public void onComplete() {
+												confirmFileUploaded(address, destinationFileName, callback);
+											}
 
-										streamByteChunkerBefore.streamTo(compressor);
-										compressor.streamTo(streamByteChunkerAfter);
-										streamByteChunkerAfter.streamTo(messaging.binarySocketWriter());
-
-										callback.onResult(streamByteChunkerBefore);
+											@Override
+											public void onException(Exception exception) {
+												callback.onException(exception);
+											}
+										});
+										callback.onResult(binarySocketWriter);
 										messaging.shutdownReader();
 									}
 								})
@@ -117,7 +122,33 @@ public class SimpleFsClient implements SimpleFs {
 		);
 	}
 
-	@Override
+	private void confirmFileUploaded(final InetSocketAddress address, final String destinationFileName,
+									 final ResultCallback<StreamConsumer<ByteBuf>> callback) {
+		eventloop.connect(address, SocketSettings.defaultSocketSettings(), new ConnectCallback() {
+					@Override
+					public void onConnect(SocketChannel socketChannel) {
+						SocketConnection connection = createConnection(socketChannel)
+								.addStarter(new MessagingStarter<SimpleFsCommand>() {
+									@Override
+									public void onStart(Messaging<SimpleFsCommand> messaging) {
+										SimpleFsCommandUploadSuccess uploadSuccessCommand
+												= new SimpleFsCommandUploadSuccess(destinationFileName);
+										messaging.sendMessage(uploadSuccessCommand);
+									}
+								});
+						connection.register();
+					}
+
+					@Override
+					public void onException(Exception e) {
+						callback.onException(e);
+					}
+				}
+		);
+	}
+
+
+		@Override
 	public void read(InetSocketAddress address, final String path, final ResultCallback<StreamProducer<ByteBuf>> callback) {
 		eventloop.connect(address, SocketSettings.defaultSocketSettings(), new ConnectCallback() {
 					@Override
@@ -133,9 +164,9 @@ public class SimpleFsClient implements SimpleFs {
 								.addHandler(SimpleFsResponseOperationOk.class, new MessagingHandler<SimpleFsResponseOperationOk, SimpleFsCommand>() {
 									@Override
 									public void onMessage(SimpleFsResponseOperationOk item, Messaging<SimpleFsCommand> messaging) {
-										StreamLZ4Decompressor lz4Decompressor = new StreamLZ4Decompressor(eventloop);
-										messaging.binarySocketReader().streamTo(lz4Decompressor);
-										callback.onResult(lz4Decompressor);
+//										StreamLZ4Decompressor lz4Decompressor = new StreamLZ4Decompressor(eventloop);
+//										messaging.binarySocketReader().streamTo(lz4Decompressor);
+										callback.onResult(messaging.binarySocketReader());
 										messaging.shutdownWriter();
 									}
 								})
