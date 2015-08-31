@@ -43,7 +43,8 @@ public class SimpleFsFileUploadExample {
 
 	// Specify path to file to upload in the first argument
 	public static void main(String[] args) {
-		final String uploadFileName = args[0];
+//		final String uploadFileName = args[0];
+		final String uploadFileName = "/home/vmykhalko/Desktop/datax.txt";
 		final InetSocketAddress serverAddress = new InetSocketAddress("127.0.0.1", SERVER_PORT);
 		final ExecutorService executor = Executors.newCachedThreadPool();
 

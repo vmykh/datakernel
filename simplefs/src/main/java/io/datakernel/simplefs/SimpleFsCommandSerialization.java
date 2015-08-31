@@ -27,6 +27,7 @@ public class SimpleFsCommandSerialization {
 					.subclassField("commandType")
 					.subclass("Download", SimpleFsCommandDownload.class)
 					.subclass("Upload", SimpleFsCommandUpload.class)
+					.subclass("UploadSuccess", SimpleFsCommandUploadSuccess.class)
 					.subclass("List", SimpleFsCommandList.class)
 					.subclass("Delete", SimpleFsCommandDelete.class)
 					.build())

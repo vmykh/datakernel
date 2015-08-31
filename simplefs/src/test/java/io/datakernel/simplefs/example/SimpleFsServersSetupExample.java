@@ -32,7 +32,7 @@ import java.util.concurrent.Executors;
  */
 public class SimpleFsServersSetupExample {
 	private static final int SERVER_PORT = 6732;
-	private static final Path SERVER_STORAGE_PATH = Paths.get("./test/server_storage");
+	private static final Path SERVER_STORAGE_PATH = Paths.get("/home/vmykhalko/Desktop/simplefs");
 
 	public static void main(String[] args) throws IOException {
 		final ExecutorService executor = Executors.newCachedThreadPool();
